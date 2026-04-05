@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BLUE WHALE | LIVE AWARD ENGINE</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root { --blue: #007AFF; --bg: #020202; }
+        body { background: var(--bg); color: white; font-family: 'Inter', sans-serif; overflow: hidden; margin: 0; }
+        
+        /* Floating Nav */
+        .floating-nav { 
+            position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%);
+            width: 90%; max-width: 1000px; height: 75px;
+            background: rgba(15, 15, 15, 0.7); backdrop-filter: blur(30px);
+            border: 1px solid rgba(255,255,255,0.1); border-radius: 50px;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 40px; z-index: 1000;
+        }
+
+        #app-viewport { height: 100vh; overflow-y: scroll; scroll-behavior: smooth; padding-bottom: 150px; }
+        .row-container { display: flex; gap: 20px; overflow-x: auto; padding: 20px 60px; scroll-behavior: smooth; }
+        .row-container::-webkit-scrollbar { display: none; }
+
+        /* Movie Card */
+        .card {
+            min-width: 300px; height: 170px; border-radius: 12px; overflow: hidden;
+            position: relative; transition: 0.5s cubic-bezier(0.2, 1, 0.3, 1);
+            background: #111; cursor: pointer;
+        }
+        .card:hover { transform: scale(1.15); z-index: 100; box-shadow: 0 20px 50px rgba(0,122,255,0.4); }
+        
+        .trailer-box { position: absolute; inset: 0; opacity: 0; transition: 0.4s; background: #000; pointer-events: none; }
+        .card:hover .trailer-box { opacity: 1; }
+        iframe { width: 100%; height: 100%; transform: scale(1.4); }
+
+        /* Badges */
+        .award-badge { background: rgba(0,0,0,0.85); padding: 4px 8px; border-radius: 5px; font-size: 10px; font-weight: bold; position: absolute; top: 10px; left: 10px; z-index: 10; border: 1px solid rgba(255,255,255,0.1); display: none; }
+        .oscar { color: #FFD700; border-color: #FFD700; }
+
+        /* Overlays */
+        .overlay { position: fixed; inset: 0; background: var(--bg); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .btn-mood { padding: 12px 30px; border: 1px solid rgba(255,255,255,0.1); border-radius: 30px; cursor: pointer; transition: 0.3s; background: #111; }
+        .btn-mood:hover { background: var(--blue); border-color: var(--blue); transform: translateY(-2px); }
+    </style>
+</head>
+<body>
+
+<div id="scanner" class="overlay">
+    <video id="webcam" class="w-64 h-64 rounded-full object-cover border-4 border-blue-500/20 grayscale" autoplay></video>
+    <h2 class="mt-8 text-blue-500 tracking-[0.5em] font-bold">SCANNING IDENTITY...</h2>
+</div>
+
+<div id="mood-picker" class="overlay" style="display:none">
+    <h1 class="text-4xl font-black italic mb-10 text-white">SELECT MOOD</h1>
+    <div class="flex flex-wrap justify-center gap-4 max-w-2xl">
+        <div class="btn-mood" onclick="startApp('28')">Action & Adrenaline</div>
+        <div class="btn-mood" onclick="startApp('878')">Future & Sci-Fi</div>
+        <div class="btn-mood" onclick="startApp('27')">Dark & Horror</div>
+        <div class="btn-mood" onclick="startApp('35')">Comedy & Laughs</div>
+    </div>
+</div>
+
+<div id="app-viewport" style="display:none">
+    <header class="p-16"><h1 class="text-7xl font-black italic text-blue-600 tracking-tighter">BLUE WHALE</h1></header>
+    <div id="content-rows"></div>
+</div>
+
+<nav class="floating-nav" id="ui-nav" style="display:none">
+    <div class="flex gap-10 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+        <span onclick="location.reload()" class="hover:text-white cursor-pointer">Home</span>
+        <span onclick="alert('Biometric ID: Verified')" class="hover:text-white cursor-pointer">Profile</span>
+    </div>
+    <div class="flex-1 px-12">
+        <input id="search" placeholder="Search the whale's memory..." class="w-full bg-white/5 border border-white/10 rounded-full py-3 px-8 text-sm outline-none focus:border-blue-500 text-white">
+    </div>
+    <div class="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center font-bold">BW</div>
+</nav>
+
+<script>
+    // GLOBAL API KEYS
+    const TMDB_KEY = "dfd828742b300cc25ce11816c15ffed5";
+    const OMDB_KEY = "2d72af87";
+    const YT_KEY = "AIzaSyCEYLQ0DYcl84Z8bQ6PVl2prmTXDUIzECc";
+    
+    const languages = [{code:"en", name:"English"}, {code:"hi", name:"Hindi"}, {code:"ko", name:"Korean"}, {code:"ja", name:"Japanese"}];
+    const genresList = [{id:28, name:"Action"}, {id:878, name:"Sci-Fi"}, {id:27, name:"Horror"}, {id:10749, name:"Romance"}];
+
+    let vPage = 1;
+    let isFetching = false;
+    let hTimer;
+
+    async function init() {
+        try {
+            const s = await navigator.mediaDevices.getUserMedia({ video: true });
+            document.getElementById('webcam').srcObject = s;
+            setTimeout(() => {
+                document.getElementById('scanner').style.display = 'none';
+                document.getElementById('mood-picker').style.display = 'flex';
+            }, 3000);
+        } catch(e) { 
+            console.log("Webcam denied, skipping to mood.");
+            document.getElementById('scanner').style.display = 'none';
+            document.getElementById('mood-picker').style.display = 'flex';
+        }
+    }
+
+    function startApp(genreId) {
+        document.getElementById('mood-picker').style.display = 'none';
+        document.getElementById('app-viewport').style.display = 'block';
+        document.getElementById('ui-nav').style.display = 'flex';
+        loadMoreRows();
+    }
+
+    async function loadMoreRows() {
+        if(isFetching) return;
+        isFetching = true;
+
+        for(let i=0; i<2; i++) {
+            let title = "";
+            let queryUrl = "";
+
+            if(vPage <= languages.length) {
+                const l = languages[vPage-1];
+                title = `${l.name} Language Trending`;
+                queryUrl = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}&with_original_language=${l.code}&page=${vPage}&sort_by=popularity.desc`;
+            } else {
+                const g = genresList[(vPage - languages.length - 1) % genresList.length];
+                title = `Top Rated ${g.name}`;
+                queryUrl = `https://api.themoviedb.org/3/discover/movie?api_key=${TMDB_KEY}&with_genres=${g.id}&page=${vPage}&sort_by=popularity.desc`;
+            }
+
+            const res = await fetch(queryUrl);
+            const data = await res.json();
+            createRow(title, data.results);
+            vPage++;
+        }
+        isFetching = false;
+    }
+
+    function createRow(title, movies) {
+        const wrap = document.createElement("div");
+        wrap.className = "mb-12";
+        wrap.innerHTML = `<h2 class="px-16 text-blue-500/50 font-bold uppercase text-[10px] tracking-[0.5em] mb-4">${title}</h2>`;
+        
+        const row = document.createElement("div");
+        row.className = "row-container";
+
+        movies.forEach(m => {
+            if(!m.backdrop_path) return;
+            const card = document.createElement("div");
+            card.className = "card";
+            card.innerHTML = `
+                <img src="https://image.tmdb.org/t/p/w500${m.backdrop_path}" class="w-full h-full object-cover">
+                <div class="award-badge" id="awd-${m.id}"></div>
+                <div class="trailer-box" id="yt-${m.id}"></div>
+                <div class="absolute bottom-3 left-3 flex flex-col gap-1">
+                    <p class="text-[10px] font-black uppercase truncate w-64">${m.title}</p>
+                    <div class="flex gap-2">
+                        <span class="bg-black/80 px-2 py-0.5 rounded text-[8px] font-bold" id="rate-${m.id}">⭐ ${m.vote_average}</span>
+                    </div>
+                </div>
+            `;
+            
+            card.onmouseenter = () => {
+                hTimer = setTimeout(() => injectTrailer(m.title, `yt-${m.id}`), 800);
+            };
+            card.onmouseleave = () => {
+                clearTimeout(hTimer);
+                document.getElementById(`yt-${m.id}`).innerHTML = "";
+            };
+
+            card.onclick = () => window.open(`https://www.google.com/search?q=${encodeURIComponent(m.title + " movie")}`, '_blank');
+            
+            row.appendChild(card);
+            fetchAwards(m.title, m.id);
+        });
+
+        wrap.appendChild(row);
+        document.getElementById('content-rows').appendChild(wrap);
+    }
+
+    async function fetchAwards(title, id) {
+        try {
+            const res = await fetch(`https://www.omdbapi.com/?t=${encodeURIComponent(title)}&apikey=${OMDB_KEY}`);
+            const d = await res.json();
+            const awards = (d.Awards || "").toLowerCase();
+            const badgeEl = document.getElementById(`awd-${id}`);
+
+            if(awards.includes("oscar")) {
+                badgeEl.innerText = "🏆 OSCAR WINNER";
+                badgeEl.classList.add("oscar");
+                badgeEl.style.display = "block";
+            } else if(awards.includes("golden globe") || awards.includes("bafta")) {
+                badgeEl.innerText = "🌟 AWARD WINNER";
+                badgeEl.style.display = "block";
+            }
+
+            if(d.imdbRating) document.getElementById(`rate-${id}`).innerText = `⭐ ${d.imdbRating}`;
+        } catch(e) {}
+    }
+
+    async function injectTrailer(name, divId) {
+        try {
+            const res = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&q=${encodeURIComponent(name + " official trailer")}&maxResults=1&key=${YT_KEY}`);
+            const data = await res.json();
+            const vid = data.items?.[0]?.id?.videoId;
+            if(vid) {
+                document.getElementById(divId).innerHTML = `<iframe src="https://www.youtube.com/embed/${vid}?autoplay=1&mute=1&controls=0&modestbranding=1" frameborder="0"></iframe>`;
+            }
+        } catch(e) {}
+    }
+
+    document.getElementById('app-viewport').onscroll = (e) => {
+        if(e.target.scrollTop + e.target.clientHeight >= e.target.scrollHeight - 400) loadMoreRows();
+    };
+
+    document.getElementById('search').onkeypress = (e) => {
+        if(e.key === "Enter") window.open(`https://www.google.com/search?q=${e.target.value} movie`, '_blank');
+    };
+
+    init();
+</script>
+</body>
+</html>
